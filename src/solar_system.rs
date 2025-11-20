@@ -78,6 +78,8 @@ impl CelestialObject {
         let mut moon = Self::planet(parent_idx, orbit_radius, orbit_speed, scale, shader);
         moon.object_type = CelestialType::Moon;
         moon.rotation_speed = Vector3::new(0.0, 0.05, 0.0);
+        moon.orbit_angle = 0.0;
+        moon.orbit_speed *= 2.0; // Las lunas orbitan más rápido que los planetas
         moon
     }
     
@@ -152,6 +154,8 @@ impl SolarSystem {
     /// Create a basic solar system preset
     pub fn create_basic_system() -> Self {
         let mut system = SolarSystem::new();
+
+        system.add(CelestialObject::star(1.0));
         
         // Central star (Sun)
         let sun_idx = system.add(CelestialObject::star(3.0));
@@ -185,13 +189,13 @@ impl SolarSystem {
         
         // Moon orbiting Earth (planeta pequeño orbitando otro planeta)
         // Solo necesitas crear un planeta con radio de órbita pequeño y agregarlo como hijo de Earth
-        // system.add(CelestialObject::moon(
-        //     earth_idx,
-        //     0.8,      // radio de órbita pequeño (distancia desde Earth)
-        //     0.15,     // velocidad de órbita más rápida que los planetas grandes
-        //     0.12,     // escala pequeña (es una luna)
-        //     ShaderType::Rocky
-        // ));
+        system.add(CelestialObject::moon(
+            earth_idx,
+            0.8,      // radio de órbita pequeño (distancia desde Earth)
+            0.15,     // velocidad de órbita más rápida que los planetas grandes
+            0.12,     // escala pequeña (es una luna)
+            ShaderType::Rocky
+        ));
         
         // Gas giant (Jupiter-like)
         let jupiter_idx = system.add(CelestialObject::planet(
@@ -202,22 +206,22 @@ impl SolarSystem {
             ShaderType::GasGiant
         ));
         
-        // // Moons of gas giant
-        // system.add(CelestialObject::moon(
-        //     jupiter_idx,
-        //     1.3,
-        //     0.12,
-        //     0.15,
-        //     ShaderType::IceWorld
-        // ));
+        // Moons of gas giant
+        system.add(CelestialObject::moon(
+            jupiter_idx,
+            1.3,
+            0.12,
+            0.15,
+            ShaderType::IceWorld
+        ));
         
-        // system.add(CelestialObject::moon(
-        //     jupiter_idx,
-        //     1.8,
-        //     0.09,
-        //     0.18,
-        //     ShaderType::Rocky
-        // ));
+        system.add(CelestialObject::moon(
+            jupiter_idx,
+            1.8,
+            0.09,
+            0.18,
+            ShaderType::Rocky
+        ));
         
         // Outer ice world
         system.add(CelestialObject::planet(

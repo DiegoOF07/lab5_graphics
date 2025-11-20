@@ -26,7 +26,7 @@ use shaders::vertex_shader;
 use light::Light;
 use shader_system::apply_shader;
 use solar_system::{SolarSystem, CelestialObject};
-use std::time::Instant;
+
 
 /// Uniforms for shaders
 pub struct Uniforms {
@@ -92,13 +92,13 @@ fn main() {
     
     // Camera setup
     let mut camera = Camera::new(
-        Vector3::new(0.0, 5.0, 15.0),
+        Vector3::new(0.0, 15.0, 30.0),
         Vector3::new(0.0, 0.0, 0.0),
         Vector3::new(0.0, 1.0, 0.0),
     );
     
     // Light source
-    let light = Light::new(Vector3::new(0.0, 10.0, 10.0));
+    let light = Light::new(Vector3::new(0.0, 1.0, 1.0));
     
     // Load sphere model
     let obj = Obj::load("./models/sphere.obj")

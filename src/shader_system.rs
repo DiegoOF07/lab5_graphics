@@ -37,34 +37,51 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 /// Star shader - Animated sun with corona and solar flares
 pub fn star_shader(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let pos = fragment.world_position;
-    let time = uniforms.time * 0.3;
+    let time = uniforms.time * 0.8; // Aumentado de 0.3 para movimiento más rápido
 
-    // Use cheap turbulence and warp
-    let surface = turbulence(Vector3::new(pos.x * 2.0, pos.y * 2.0 + time * 0.5, pos.z * 2.0), 3);
-    let flares = warp_noise(Vector3::new(pos.x * 3.0 + time, pos.y * 3.0, pos.z * 3.0), 0.6);
+    // Múltiples capas de ruido para más movimiento
+    let surface = turbulence(Vector3::new(pos.x * 2.5, pos.y * 2.5 + time * 1.2, pos.z * 2.5), 4);
+    let flares = warp_noise(Vector3::new(pos.x * 4.0 + time * 1.5, pos.y * 4.0 + time, pos.z * 4.0), 0.8);
+    
+    // Segundo nivel de flares para más dinamismo
+    let secondary_flares = warp_noise(Vector3::new(pos.x * 2.0 + time * 0.7, pos.y * 2.0 - time * 0.5, pos.z * 2.0), 0.5);
 
-    // Simpler pulse (replace powf and heavy noise)
-    let pulse = (simplex_noise(Vector3::new(pos.x * 1.5, pos.y * 1.5, pos.z * 1.5 + time * 2.0)) * 0.5 + 0.5) * (0.7);
+    // Pulsos más intensos y diversos
+    let pulse1 = (simplex_noise(Vector3::new(pos.x * 1.5, pos.y * 1.5, pos.z * 1.5 + time * 3.0)) * 0.5 + 0.5) * 0.8;
+    let pulse2 = ((time * 1.5).sin() * 0.5 + 0.5) * 0.6; // Pulso adicional sinusoidal
+    let combined_pulse = (pulse1 + pulse2) * 0.5;
 
-    // Use cheap voronoi approx (much cheaper)
-    let spots = voronoi(pos, 3.5);
-    let spot_mask = smoothstep(0.17, 0.28, spots);
+    // Manchas solares que se mueven más rápido
+    let spots1 = voronoi(Vector3::new(pos.x + time * 0.3, pos.y + time * 0.2, pos.z), 3.5);
+    let spots2 = voronoi(Vector3::new(pos.x - time * 0.4, pos.y, pos.z + time * 0.25), 4.5);
+    let spot_mask = smoothstep(0.15, 0.3, spots1) * smoothstep(0.2, 0.35, spots2);
 
-    let core_white = Vector3::new(1.0, 1.0, 0.95);
-    let bright_yellow = Vector3::new(1.0, 0.9, 0.3);
-    let deep_orange = Vector3::new(1.0, 0.5, 0.1);
-    let dark_spot = Vector3::new(0.8, 0.3, 0.1);
+    // Colores más vibrantes y variados
+    let core_white = Vector3::new(1.0, 1.0, 1.0);
+    let bright_yellow = Vector3::new(1.0, 0.95, 0.4);
+    let deep_orange = Vector3::new(1.0, 0.6, 0.15);
+    let hot_red = Vector3::new(1.0, 0.4, 0.2);
+    let dark_spot = Vector3::new(0.7, 0.2, 0.05);
 
+    // Mezcla de colores más dinámica
     let mut color = mix_color(bright_yellow, deep_orange, surface);
-    color = mix_color(color, core_white, pulse * 0.5);
+    color = mix_color(color, hot_red, flares.abs() * 0.4);
+    color = mix_color(color, core_white, combined_pulse * 0.6);
 
-    let flare_intensity = smoothstep(0.35, 0.7, flares.abs());
-    color = mix_color(color, core_white, flare_intensity * 0.4);
+    // Flares más intensos
+    let flare_intensity = smoothstep(0.3, 0.75, flares.abs());
+    let secondary_intensity = smoothstep(0.4, 0.8, secondary_flares.abs());
+    color = mix_color(color, core_white, flare_intensity * 0.5 + secondary_intensity * 0.3);
 
-    color = mix_color(color, dark_spot, 1.0 - spot_mask);
-    color = color * 1.4 + Vector3::new(0.18, 0.12, 0.0) * pulse;
+    // Manchas solares con más contraste
+    color = mix_color(color, dark_spot, (1.0 - spot_mask) * 0.85);
+    
+    // Brillo e iluminación intensificada
+    let brightness = 1.6 + combined_pulse * 0.3; // Más brillante y con más variación
+    color = color * brightness + Vector3::new(0.25, 0.15, 0.02) * combined_pulse;
 
-    let lit_color = color * (fragment.color * 0.3 + Vector3::new(0.7, 0.7, 0.7));
+    // Aplicar iluminación base
+    let lit_color = color * (fragment.color * 0.4 + Vector3::new(0.6, 0.6, 0.6));
     lit_color
 }
 
