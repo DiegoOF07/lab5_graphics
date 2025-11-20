@@ -1,5 +1,5 @@
 // main.rs
-// Main rendering loop with planet shader system
+// Main rendering loop with modular shader system
 
 mod framebuffer;
 mod triangle;
@@ -11,8 +11,8 @@ mod camera;
 mod shaders;
 mod light;
 mod noise;
-mod planet_shaders;
-mod ring_shader;
+mod shader_system;
+mod solar_system;
 
 use triangle::triangle;
 use obj::Obj;
@@ -24,9 +24,11 @@ use vertex::Vertex;
 use camera::Camera;
 use shaders::vertex_shader;
 use light::Light;
-use planet_shaders::{apply_planet_shader, ShaderType};
+use shader_system::apply_shader;
+use solar_system::{SolarSystem, CelestialObject};
+use std::time::Instant;
 
-/// Uniforms structure containing transformation matrices and time
+/// Uniforms for shaders
 pub struct Uniforms {
     pub model_matrix: Matrix,
     pub view_matrix: Matrix,
@@ -35,223 +37,151 @@ pub struct Uniforms {
     pub time: f32,
 }
 
-/// Current rendering mode
-struct RenderState {
-    shader_type: ShaderType,
-    show_rings: bool,
-}
-
-/// Main rendering pipeline
-fn render(
+/// Render a single celestial object
+fn render_object(
     framebuffer: &mut Framebuffer,
     uniforms: &Uniforms,
     vertex_array: &[Vertex],
     light: &Light,
-    state: &RenderState,
+    object: &CelestialObject,
 ) {
-    // Stage 1: Vertex Shader - Transform all vertices
-    let transformed_vertices: Vec<Vertex> = vertex_array
+    // Transform vertices
+    let transformed: Vec<Vertex> = vertex_array
         .iter()
-        .map(|vertex| vertex_shader(vertex, uniforms))
+        .map(|v| vertex_shader(v, uniforms))
         .collect();
-
-    // Stage 2: Primitive Assembly - Group vertices into triangles
-    let triangles: Vec<[Vertex; 3]> = transformed_vertices
-        .chunks_exact(3)
-        .map(|chunk| [chunk[0].clone(), chunk[1].clone(), chunk[2].clone()])
-        .collect();
-
-    // Stage 3: Rasterization - Convert triangles to fragments
-    let mut fragments = Vec::new();
-    for tri in &triangles {
-        fragments.extend(triangle(&tri[0], &tri[1], &tri[2], light));
-    }
-
-    // Stage 4: Fragment Processing - Apply planet shader
-    for fragment in fragments {
-        let final_color = apply_planet_shader(&fragment, uniforms, state.shader_type);
-            
-        framebuffer.point(
-            fragment.position.x as i32,
-            fragment.position.y as i32,
-            fragment.depth,
-            final_color,
-        );
-    }
-
-    // Optional: Render rings if enabled
-    if state.show_rings {
-        render_rings(framebuffer, uniforms, vertex_array, light);
-    }
-}
-
-/// Renders rings around the planet
-fn render_rings(
-    framebuffer: &mut Framebuffer,
-    uniforms: &Uniforms,
-    vertex_array: &[Vertex],
-    light: &Light,
-) {
-    // Filter and transform vertices for ring geometry
-    let ring_vertices: Vec<Vertex> = vertex_array
-        .iter()
-        .filter_map(|vertex| ring_shader::ring_vertex_shader(vertex, uniforms))
-        .map(|vertex| vertex_shader(&vertex, uniforms))
-        .collect();
-
-    if ring_vertices.is_empty() {
-        return;
-    }
-
+    
     // Assemble triangles
-    let triangles: Vec<[Vertex; 3]> = ring_vertices
+    let triangles: Vec<[Vertex; 3]> = transformed
         .chunks_exact(3)
-        .map(|chunk| [chunk[0].clone(), chunk[1].clone(), chunk[2].clone()])
+        .map(|c| [c[0].clone(), c[1].clone(), c[2].clone()])
         .collect();
-
+    
     // Rasterize
     let mut fragments = Vec::new();
     for tri in &triangles {
         fragments.extend(triangle(&tri[0], &tri[1], &tri[2], light));
     }
-
-    // Apply ring shader
+    
+    // Apply shader and draw
     for fragment in fragments {
-        let final_color = ring_shader::ring_fragment_shader(&fragment, uniforms);
-            
+        let color = apply_shader(&fragment, uniforms, object.shader_type);
         framebuffer.point(
             fragment.position.x as i32,
             fragment.position.y as i32,
             fragment.depth,
-            final_color,
+            color,
         );
     }
 }
 
 fn main() {
-    const WINDOW_WIDTH: i32 = 1300;
-    const WINDOW_HEIGHT: i32 = 900;
+    const WIDTH: i32 = 1300;
+    const HEIGHT: i32 = 900;
 
-    let (mut window, raylib_thread) = raylib::init()
-        .size(WINDOW_WIDTH, WINDOW_HEIGHT)
-        .title("Procedural Planet Renderer")
+    let (mut window, thread) = raylib::init()
+        .size(WIDTH, HEIGHT)
+        .title("Solar System Renderer")
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
     window.set_target_fps(60);
 
-    let mut framebuffer = Framebuffer::new(WINDOW_WIDTH, WINDOW_HEIGHT);
+    let mut framebuffer = Framebuffer::new(WIDTH, HEIGHT);
+    framebuffer.set_background_color(Color::new(5, 5, 15, 255));
     
-    // Initialize camera
+    // Camera setup
     let mut camera = Camera::new(
-        Vector3::new(0.0, 0.0, 5.0),
+        Vector3::new(0.0, 5.0, 15.0),
         Vector3::new(0.0, 0.0, 0.0),
         Vector3::new(0.0, 1.0, 0.0),
     );
-
+    
     // Light source
-    let light = Light::new(Vector3::new(5.0, 5.0, 5.0));
-
-    // Model transformation parameters
-    let translation = Vector3::new(0.0, 0.0, 0.0);
-    let scale = 1.0;
-    let mut rotation = Vector3::new(0.0, 0.0, 0.0);
-
+    let light = Light::new(Vector3::new(0.0, 10.0, 10.0));
+    
     // Load sphere model
-    let obj = Obj::load("./models/sphere.obj").expect("Failed to load sphere model");
+    let obj = Obj::load("./models/sphere.obj")
+        .expect("Failed to load sphere.obj");
     let vertex_array = obj.get_vertex_array();
-
-    // Render state
-    let mut state = RenderState {
-        shader_type: ShaderType::Rocky,
-        show_rings: false,
-    };
-
-    framebuffer.set_background_color(Color::new(10, 10, 20, 255));
-
-    println!("\n=== PLANET SHADER CONTROLS ===");
-    println!("1 - Rocky Planet (Mars-like)");
-    println!("2 - Gas Giant (Jupiter-like)");
-    println!("3 - Lava Planet (Sci-fi)");
-    println!("4 - Ice World");
-    println!("5 - Cloud Planet (Earth-like)");
-    println!("R - Toggle Rings");
-    println!("SPACE - Auto-rotate");
-    println!("==============================\n");
-
-    let mut auto_rotate = false;
-
-    // Main render loop
+    
+    // Create solar system
+    let mut system = SolarSystem::create_basic_system();
+    let mut use_alien_system = false;
+    
+    // Projection matrix (constant)
+    let projection = create_projection_matrix(
+        PI / 3.0,
+        WIDTH as f32 / HEIGHT as f32,
+        0.1,
+        100.0
+    );
+    
+    let viewport = create_viewport_matrix(0.0, 0.0, WIDTH as f32, HEIGHT as f32);
+    
+    println!("\n=== SOLAR SYSTEM RENDERER ===");
+    println!("WASD - Rotate camera");
+    println!("Q/E - Pan horizontally");
+    println!("R/F - Pan vertically");
+    println!("↑/↓ - Zoom in/out");
+    println!("1 - Basic solar system");
+    println!("2 - Alien binary star system");
+    println!("ESC - Exit");
+    println!("=============================\n");
+    
+    // Main loop
     while !window.window_should_close() {
-        // Handle shader switching
+        let delta_time = window.get_frame_time();
+        let time = window.get_time() as f32;
+        
+        // Switch systems
         if window.is_key_pressed(KeyboardKey::KEY_ONE) {
-            state.shader_type = ShaderType::Rocky;
-            state.show_rings = false;
-            println!("Selected: Rocky Planet");
+            system = SolarSystem::create_basic_system();
+            use_alien_system = false;
+            println!("Loaded: Basic Solar System");
         }
         if window.is_key_pressed(KeyboardKey::KEY_TWO) {
-            state.shader_type = ShaderType::GasGiant;
-            state.show_rings = false;
-            println!("Selected: Gas Giant");
+            system = SolarSystem::create_alien_system();
+            use_alien_system = true;
+            println!("Loaded: Alien Binary Star System");
         }
-        if window.is_key_pressed(KeyboardKey::KEY_THREE) {
-            state.shader_type = ShaderType::Lava;
-            state.show_rings = false;
-            println!("Selected: Lava Planet");
-        }
-        if window.is_key_pressed(KeyboardKey::KEY_FOUR) {
-            state.shader_type = ShaderType::IceWorld;
-            state.show_rings = false;
-            println!("Selected: Ice World");
-        }
-        if window.is_key_pressed(KeyboardKey::KEY_FIVE) {
-            state.shader_type = ShaderType::CloudPlanet;
-            state.show_rings = false;
-            println!("Selected: Cloud Planet");
-        }
-        if window.is_key_pressed(KeyboardKey::KEY_R) {
-            state.show_rings = !state.show_rings;
-            println!("Rings: {}", if state.show_rings { "ON" } else { "OFF" });
-        }
-        if window.is_key_pressed(KeyboardKey::KEY_SPACE) {
-            auto_rotate = !auto_rotate;
-            println!("Auto-rotate: {}", if auto_rotate { "ON" } else { "OFF" });
-        }
-
-        // Auto-rotation
-        if auto_rotate {
-            rotation.y += 0.01;
-        }
-
+        
+        // Update camera and system
         camera.process_input(&window);
+        system.update(delta_time);
+        
+        // Clear buffers
         framebuffer.clear();
         
-        // Create transformation matrices
-        let model_matrix = create_model_matrix(translation, scale, rotation);
-        let view_matrix = camera.get_view_matrix();
-        let projection_matrix = create_projection_matrix(
-            PI / 3.0,
-            WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32,
-            0.1,
-            100.0
-        );
-        let viewport_matrix = create_viewport_matrix(
-            0.0,
-            0.0,
-            WINDOW_WIDTH as f32,
-            WINDOW_HEIGHT as f32
-        );
-
-        // Package uniforms
-        let uniforms = Uniforms {
-            model_matrix,
-            view_matrix,
-            projection_matrix,
-            viewport_matrix,
-            time: window.get_time() as f32,
-        };
-
-        render(&mut framebuffer, &uniforms, &vertex_array, &light, &state);
-        framebuffer.swap_buffers(&mut window, &raylib_thread);
+        // Get view matrix
+        let view = camera.get_view_matrix();
+        
+        // Render all objects
+        for object in &system.objects {
+            let model = create_model_matrix(
+                object.position,
+                object.scale,
+                object.rotation
+            );
+            
+            let uniforms = Uniforms {
+                model_matrix: model,
+                view_matrix: view,
+                projection_matrix: projection,
+                viewport_matrix: viewport,
+                time,
+            };
+            
+            render_object(
+                &mut framebuffer,
+                &uniforms,
+                &vertex_array,
+                &light,
+                object
+            );
+        }
+        
+        // Display
+        framebuffer.swap_buffers(&mut window, &thread);
     }
 }
